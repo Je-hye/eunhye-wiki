@@ -1,0 +1,115 @@
+services:
+  web:
+    build:
+      context: ./apps/web
+    environment:
+      NEXT_PUBLIC_PUBLIC_API_URL: http://localhost:8001
+      NEXT_PUBLIC_PRIVATE_API_URL: http://localhost:8002
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      public-api:
+        condition: service_healthy
+      private-api:
+        condition: service_healthy
+    networks:
+      - frontend-tier
+
+  public-api:
+    build:
+      context: ./apps/api
+    command: uvicorn app.entrypoints.public:app --host 0.0.0.0 --port 8000
+    environment:
+      APP_MODE: public
+      DATABASE_URL: postgresql://public_app:${PUBLIC_DB_PASSWORD:-public-dev-only}@public-db:5432/wiki
+    ports:
+      - "127.0.0.1:8001:8000"
+    depends_on:
+      public-db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - public-tier
+
+  private-api:
+    build:
+      context: ./apps/api
+    command: uvicorn app.entrypoints.private:app --host 0.0.0.0 --port 8000
+    environment:
+      APP_MODE: private
+      DATABASE_URL: postgresql://private_app:${PRIVATE_DB_PASSWORD:-private-dev-only}@private-db:5432/wiki
+      NOTES_PATH: /data/notes
+    ports:
+      - "127.0.0.1:8002:8000"
+    depends_on:
+      private-db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - type: bind
+        source: ${NOTES_PATH:-${HOME}/Notes}
+        target: /data/notes
+        read_only: true
+    networks:
+      - private-tier
+
+  public-db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: wiki
+      POSTGRES_USER: public_app
+      POSTGRES_PASSWORD: ${PUBLIC_DB_PASSWORD:-public-dev-only}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U public_app -d wiki
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - public-db-data:/var/lib/postgresql/data
+    networks:
+      - public-tier
+
+  private-db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: wiki
+      POSTGRES_USER: private_app
+      POSTGRES_PASSWORD: ${PRIVATE_DB_PASSWORD:-private-dev-only}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U private_app -d wiki
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - private-db-data:/var/lib/postgresql/data
+    networks:
+      - private-tier
+
+networks:
+  frontend-tier:
+  public-tier:
+  private-tier:
+
+volumes:
+  public-db-data:
+  private-db-data:

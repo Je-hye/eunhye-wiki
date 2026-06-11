@@ -1,0 +1,37 @@
+services:
+  web:
+    build:
+      context: ./apps/web
+    environment:
+      NEXT_PUBLIC_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://public-api:8000}
+      NEXT_PUBLIC_PRIVATE_API_URL: ""
+    ports:
+      - "3000:3000"
+    depends_on:
+      public-api:
+        condition: service_healthy
+    networks:
+      - frontend-tier
+
+  public-api:
+    build:
+      context: ./apps/api
+    command: uvicorn app.entrypoints.public:app --host 0.0.0.0 --port 8000
+    environment:
+      APP_MODE: public
+      DATABASE_URL: ${PUBLIC_DATABASE_URL:?PUBLIC_DATABASE_URL is required}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - public-tier
+
+networks:
+  frontend-tier:
+  public-tier:
